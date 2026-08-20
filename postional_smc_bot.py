@@ -3,7 +3,6 @@ Free ICT POSITIONAL SMC Bot - Weekly Close Analysis
 For 2-12 week holds. Run Sunday 10 PM London.
 Detects: Weekly/Monthly Market Structure, Weekly FVG, Premium/Discount OTE, COT proxy via DXY/Yields
 100% FREE
-This bot is for educational purposes only. It does not provide financial advice. Use at your own risk.
 """
 
 import os
@@ -74,6 +73,41 @@ def detect_weekly_fvg(df):
             fvgs.append(f"Bear Weekly FVG {float(df['High'].iloc[i+1]):.4f}-{float(df['Low'].iloc[i-1]):.4f}")
     return fvgs[-2:]
 
+
+def parse_gemini_json(text):
+    import json, re
+    try:
+        match = re.search(r'\[.*\]', text, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        return json.loads(text)
+    except Exception as e:
+        print(f"JSON parse failed: {e}")
+        return None
+
+def build_vertical_tables_positional(assets_data):
+    tables = ""
+    tables += "🏛️ POSITIONAL BRIEF - WEEKLY CLOSE\n"
+    tables += f"{datetime.now().strftime('%Y-%m-%d')}\n"
+    tables += "="*40 + "\n\n"
+    if not assets_data:
+        return tables + "No AI data"
+    for item in assets_data:
+        asset = item.get("asset","")
+        tables += f"┌─ {asset} ─────────────────────────\n"
+        tables += f"│ Macro Bias   : {item.get('macro_bias','')}\n"
+        tables += f"│ W Structure  : {item.get('weekly_structure','')}\n"
+        tables += f"│ RSI W        : {item.get('rsi_weekly','')}\n"
+        tables += f"│ PD Zone      : {item.get('pd_zone','')}\n"
+        tables += f"│ Weekly FVG   : {item.get('weekly_fvg','')}\n"
+        tables += f"│ DOL          : {item.get('dol','')}\n"
+        tables += f"│ POI          : {item.get('positional_poi','')}\n"
+        tables += f"│ Invalidation : {item.get('invalidation','')}\n"
+        tables += f"│ Roadmap      : {item.get('roadmap','')}\n"
+        tables += f"└─────────────────────────────────\n\n"
+    return tables
+
+
 def build_positional_snapshot():
     snap = ""
     for name, ticker in PAIRS.items():
@@ -106,26 +140,34 @@ def call_gemini_positional(snapshot):
     try:
         from google import genai
         client = genai.Client(api_key=api_key)
-        prompt = f"""
+prompt = f"""
 You are my ICT Positional Analyst. Time: Sunday Weekly Close 10 PM London.
 
 LIVE WEEKLY SNAPSHOT (Weekly + Monthly data):
 {snapshot}
 
-TASK: Positional roadmap 2-12 weeks for Forex & Commodities.
+TASK: For EACH asset (EURUSD, GBPUSD, XAUUSD, XAGUSD, DXY, US10Y, WTI), return JSON:
 
-Analyze:
-1. MACRO STRUCTURE: Weekly/Monthly BOS/CHoCH, DXY vs XAUUSD vs US10Y alignment, where is major liquidity?
-2. POSITIONAL POI: Weekly/Monthly OB/FVG/Breaker, Premium/Discount OTE 62-79%, Weekly RSI OB/OS >70/<30?
-3. ROADMAP: 3 bullets for next 3 months - bias, accumulation/manipulation/expansion phase, where to add/exit, weekly invalidation.
+{{
+  "asset": "EURUSD",
+  "macro_bias": "Bullish/Bearish",
+  "weekly_structure": "Weekly BOS/CHoCH",
+  "rsi_weekly": "RSI value + OB/OS",
+  "pd_zone": "Premium/Discount/OTE",
+  "weekly_fvg": "Weekly FVG level",
+  "dol": "Monthly/Weekly liquidity target",
+  "positional_poi": "Weekly OB/FVG level to enter",
+  "invalidation": "Weekly CHoCH level",
+  "roadmap": "2-12 week plan 1 line"
+}}
 
-Format:
-MACRO BIAS: DXY Bull/Bear -> implication for EURUSD/XAUUSD
-POSITIONAL SETUPS: Pair - Direction - Weekly OB/FVG - Invalidation Weekly CHoCH
-3-MONTH ROADMAP: ...
-
-Max 400 words, concise, no financial advice.
+Return ONLY JSON array:
+[
+  {{"asset": "EURUSD", ...}},
+  ...
+]
 """
+
         model_name = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
         try:
             chat = client.chats.create(model=model_name)
@@ -152,7 +194,13 @@ def send_telegram(msg):
 
 if __name__ == "__main__":
     snap = build_positional_snapshot()
-    analysis = call_gemini_positional(snap)
-    final = f"🏛️ POSITIONAL BRIEF - WEEKLY CLOSE {datetime.now().strftime('%Y-%m-%d')}\n\n{analysis}\n\n--- RAW ---\n{snap[:2000]}"
+    raw_ai = call_gemini_positional(snap)
+    print(f"Raw AI: {raw_ai[:1000]}")
+    parsed = parse_gemini_json(raw_ai)
+    if parsed:
+        final = build_vertical_tables_positional(parsed)
+        final += "\n--- RAW ---\n" + snap[:1000]
+    else:
+        final = f"🏛️ POSITIONAL BRIEF - WEEKLY CLOSE {datetime.now().strftime('%Y-%m-%d')}\n\n{raw_ai}\n\n--- RAW ---\n{snap[:1000]}"
     print(final)
     send_telegram(final)

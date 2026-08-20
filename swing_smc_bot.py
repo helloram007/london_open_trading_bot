@@ -136,6 +136,58 @@ def calc_rsi(df, period=14):
     rsi = 100 - (100 / (1 + rs))
     return float(rsi.iloc[-1]) if not pd.isna(rsi.iloc[-1]) else 50
 
+
+def parse_gemini_json(text):
+    """Extract JSON array from Gemini response"""
+    import json
+    import re
+    try:
+        # Find JSON array
+        match = re.search(r'\[.*\]', text, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        return json.loads(text)
+    except Exception as e:
+        print(f"JSON parse failed: {e}, raw: {text[:500]}")
+        return None
+
+def build_vertical_tables(assets_data, all_data):
+    """Build vertical table per asset for Telegram"""
+    tables = ""
+    # Header
+    tables += "📊 ICT SWING BRIEF - NY CLOSE\n"
+    tables += f"{datetime.now().strftime('%Y-%m-%d %H:%M London')}\n"
+    tables += "="*40 + "\n\n"
+    
+    if not assets_data:
+        return tables + "No AI data, showing raw:\n" + str(all_data)[:2000]
+    
+    for item in assets_data:
+        asset = item.get("asset", "UNKNOWN")
+        # Get live price data if available
+        live = all_data.get(asset, {})
+        close_price = live.get("close", "")
+        if close_price:
+            close_str = f"{close_price:.5f}"
+        else:
+            close_str = ""
+            
+        tables += f"┌─ {asset} {close_str} ─────────────────\n"
+        tables += f"│ Bias           : {item.get('bias','')} ({item.get('confidence','')})\n"
+        tables += f"│ HTF Structure  : {item.get('htf_structure','')}\n"
+        tables += f"│ LTF Structure  : {item.get('ltf_structure','')}\n"
+        tables += f"│ RSI            : {item.get('rsi','')} | {live.get('rsi_daily',''):.0f} D / {live.get('rsi_h1',''):.0f} H1\n"
+        tables += f"│ DOL / Liquidity: {item.get('liquidity_dol','')}\n"
+        tables += f"│ POI            : {item.get('poi','')}\n"
+        tables += f"│ Invalidation   : {item.get('invalidation','')}\n"
+        tables += f"│ London Plan    : {item.get('london_plan','')}\n"
+        tables += f"│ Momentum       : {item.get('momentum_strength','')}\n"
+        tables += f"└─────────────────────────────────\n\n"
+    
+    return tables
+
+
+
 def build_market_snapshot():
     snapshot = ""
     all_data = {}
@@ -193,42 +245,39 @@ def call_gemini_analysis(market_snapshot):
         client = genai.Client(api_key=api_key)
         model_name = __import__("os").getenv("GEMINI_MODEL", "gemini-3.6-flash")
         
-        prompt = f"""
+prompt = f"""
 You are my ICT Swing Analyst for Forex & Commodities. Time: NY Daily Close [10 PM London - 5 PM NY].
 
 LIVE MARKET SNAPSHOT from yfinance (Daily + 1H):
 {market_snapshot}
 
-TASK: Do top-down MTF analysis for swing trading next 2-5 days.
+TASK: Do top-down MTF swing analysis for next 2-5 days for EURUSD, GBPUSD, XAUUSD, XAGUSD, DXY.
 
-Focus pairs: EURUSD, GBPUSD, XAUUSD (GC=F), DXY, XAGUSD
-Concepts: Market Structure BOS/CHoCH, Order Blocks, FVG/IFVG, Liquidity Sweep / Judas Swing, BSL/SSL, Premium/Discount, Momentum RSI, Strength via DXY correlation, OB/OS.
+For EACH asset, return a JSON object with these exact keys:
+{{
+  "asset": "EURUSD",
+  "bias": "Bullish/Bearish/Neutral",
+  "confidence": "High/Med/Low",
+  "htf_structure": "Daily HH/HL BOS etc",
+  "ltf_structure": "H1 structure",
+  "rsi": "D: XX (OB/OS?) / H1: XX",
+  "liquidity_dol": "Where BSL/SSL resting, equal highs/lows",
+  "poi": "Best OB/FVG/IFVG with level",
+  "invalidation": "CHoCH level that kills bias",
+  "london_plan": "Wait for Judas Sweep etc",
+  "momentum_strength": "Momentum + DXY correlation"
+}}
 
-Give output in this exact format:
+Return ONLY a JSON array like:
+[
+  {{"asset": "EURUSD", "bias": "Bullish", ...}},
+  {{"asset": "GBPUSD", ...}},
+  ...
+]
 
-🔷 BIAS DASHBOARD (for each pair):
-EURUSD: Bullish/Bearish/Neutral | Confidence High/Med/Low | Why 1 line
-GBPUSD: ...
-XAUUSD: ...
-DXY: ...
-
-🎯 DRAW ON LIQUIDITY (DOL):
-Where is price likely to go next to grab liquidity?
-
-💎 SWING POI (Best 2 setups only):
-Pair - Type - Level - Why [OB/FVG/IFVG + HTF alignment]
-
-🛑 INVALIDATION:
-Pair - Level - What CHoCH kills it
-
-📋 LONDON EXECUTION PLAN:
-What to wait for at London Open? Judas Sweep? Then MSS + IFVG entry?
-
-⚠️ NEWS FILTER:
-Any red folder tomorrow? Should we stand down?
-
-Keep it concise, trader language, no financial advice. Max 400 words.
+No extra text, just JSON array. Keep values concise, 1 line per key.
 """
+
         
         try:
             # Use Chat API to avoid AFC warning from Models.generate_content
@@ -277,16 +326,25 @@ def main():
     snapshot, all_data = build_market_snapshot()
     print(snapshot)
     
-    print("\nCalling Gemini...")
-    analysis = call_gemini_analysis(snapshot)
+    print("\nCalling Gemini 3.6 Flash for vertical tables...")
+    raw_ai = call_gemini_analysis(snapshot)
+    print(f"Raw AI: {raw_ai[:1000]}")
     
-    final_msg = f"📊 ICT SWING BRIEF - NY CLOSE {datetime.now().strftime('%Y-%m-%d %H:%M London')}\n\n{analysis}\n\n--- RAW SMC DATA ---\n{snapshot[:1500]}"
+    parsed = parse_gemini_json(raw_ai)
     
-    print("\n--- FINAL ANALYSIS ---\n")
+    if parsed:
+        final_msg = build_vertical_tables(parsed, all_data)
+        # Add raw snapshot footer for reference
+        final_msg += "\n--- RAW SMC DATA ---\n" + snapshot[:1000]
+    else:
+        # Fallback if JSON parse fails - show raw
+        final_msg = f"📊 ICT SWING BRIEF - NY CLOSE {datetime.now().strftime('%Y-%m-%d %H:%M London')}\n\n{raw_ai}\n\n--- RAW ---\n{snapshot[:1000]}"
+    
+    print("\n--- FINAL VERTICAL TABLES ---\n")
     print(final_msg)
     
     send_telegram(final_msg)
-    print("\nDone. If Telegram configured, sent. Otherwise printed above.")
+    print("\nDone.")
 
 if __name__ == "__main__":
     main()
