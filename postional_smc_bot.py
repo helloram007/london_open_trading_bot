@@ -3,6 +3,7 @@ Free ICT POSITIONAL SMC Bot - Weekly Close Analysis
 For 2-12 week holds. Run Sunday 10 PM London.
 Detects: Weekly/Monthly Market Structure, Weekly FVG, Premium/Discount OTE, COT proxy via DXY/Yields
 100% FREE
+This bot is for educational purposes only. It does not provide financial advice. Use at your own risk.
 """
 
 import os

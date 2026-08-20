@@ -2,19 +2,19 @@ name: Free ICT Swing Brief - NY Close
 
 on:
   schedule:
-    # Daily Swing: 21:00 UTC = 10 PM London BST (summer) / 10 PM GMT = 22:00 UTC in winter
-    # We run twice to cover both: 21:00 UTC and 22:00 UTC, Mon-Fri
+    # UK Time: 10 PM BST = 21:00 UTC, 10 PM GMT = 22:00 UTC
+    # Run every day Mon-Fri at both times to cover DST change
     - cron: '0 21 * * 1-5'
     - cron: '0 22 * * 1-5'
-    # Weekly Positional: Sunday 21:00 UTC = 10 PM BST / 22:00 UTC = 10 PM GMT
+    # Weekly positional Sunday
     - cron: '0 21 * * 0'
     - cron: '0 22 * * 0'
-  workflow_dispatch: # Allows manual run from GitHub UI for testing
+  workflow_dispatch:
 
 jobs:
   swing-analysis:
-    if: github.event.schedule == '0 21 * * 1-5' || github.event.schedule == '0 22 * * 1-5' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    # Removed the buggy if: condition that was blocking scheduled runs
     steps:
       - uses: actions/checkout@v4
       
@@ -25,37 +25,30 @@ jobs:
           
       - name: Install deps
         run: |
-          pip install yfinance pandas requests google-generativeai
+          pip install yfinance pandas requests google-genai
+          python -c "import google.genai; print('genai installed OK')"
+          
+      - name: Debug - Check Secrets Exist (no values shown)
+        run: |
+          if [ -z "${{ secrets.GEMINI_API_KEY }}" ]; then echo "❌ GEMINI_API_KEY missing"; else echo "✅ GEMINI_API_KEY exists"; fi
+          if [ -z "${{ secrets.TELEGRAM_BOT_TOKEN }}" ]; then echo "❌ TELEGRAM_BOT_TOKEN missing"; else echo "✅ TELEGRAM_BOT_TOKEN exists"; fi
+          if [ -z "${{ secrets.TELEGRAM_CHAT_ID }}" ]; then echo "❌ TELEGRAM_CHAT_ID missing"; else echo "✅ TELEGRAM_CHAT_ID exists"; fi
+          if [ -z "${{ secrets.FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 }}" ]; then echo "❌ FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 missing"; else echo "✅ FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 exists"; fi
           
       - name: Run Swing SMC Bot - NY Close
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: ${{ secrets.FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 }}
+          GEMINI_MODEL: gemini-3.6-flash
         run: |
           python swing_smc_bot.py --now
-
-  positional-analysis:
-    if: github.event.schedule == '0 21 * * 0' || github.event.schedule == '0 22 * * 0'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
+          
+      - name: Upload log if failed
+        if: failure()
+        uses: actions/upload-artifact@v4
         with:
-          python-version: '3.11'
-          
-      - name: Install deps
-        run: |
-          pip install yfinance pandas requests google-generativeai
-          
-      - name: Run Positional SMC Bot - Weekly Close
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-        run: |
-          python positional_smc_bot.py --now
+          name: swing-log
+          path: |
+            *.log

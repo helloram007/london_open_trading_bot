@@ -249,15 +249,21 @@ def send_telegram(message):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
-        print("Telegram not configured. Printing message:\n", message)
+        print("❌ Telegram not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID")
+        print(message)
         return
     
+    # Clean message to avoid Markdown parse errors
+    # Telegram Markdown fails on _ * [ ] etc, so we send plain text
+    print(f"📤 Sending to Telegram Chat ID: {chat_id}")
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    # Telegram max 4096 chars, split if needed
     for i in range(0, len(message), 4000):
         chunk = message[i:i+4000]
         try:
-            requests.post(url, data={"chat_id": chat_id, "text": chunk, "parse_mode": "Markdown"})
+            resp = requests.post(url, data={"chat_id": chat_id, "text": chunk}, timeout=15)
+            print(f"Telegram response {resp.status_code}: {resp.text[:500]}")
+            if resp.status_code != 200:
+                print(f"❌ Telegram failed: {resp.text}")
             time.sleep(0.5)
         except Exception as e:
             print(f"Telegram error: {e}")
