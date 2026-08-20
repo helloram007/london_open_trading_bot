@@ -140,7 +140,7 @@ def call_gemini_positional(snapshot):
     try:
         from google import genai
         client = genai.Client(api_key=api_key)
-prompt = f"""
+        prompt = f"""
 You are my ICT Positional Analyst. Time: Sunday Weekly Close 10 PM London.
 
 LIVE WEEKLY SNAPSHOT (Weekly + Monthly data):

@@ -244,8 +244,7 @@ def call_gemini_analysis(market_snapshot):
         from google import genai
         client = genai.Client(api_key=api_key)
         model_name = __import__("os").getenv("GEMINI_MODEL", "gemini-3.6-flash")
-        
-prompt = f"""
+        prompt = f"""
 You are my ICT Swing Analyst for Forex & Commodities. Time: NY Daily Close [10 PM London - 5 PM NY].
 
 LIVE MARKET SNAPSHOT from yfinance (Daily + 1H):
@@ -276,9 +275,7 @@ Return ONLY a JSON array like:
 ]
 
 No extra text, just JSON array. Keep values concise, 1 line per key.
-"""
-
-        
+        """
         try:
             # Use Chat API to avoid AFC warning from Models.generate_content
             chat = client.chats.create(model=model_name)
