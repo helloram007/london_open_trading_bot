@@ -33,8 +33,6 @@ PAIRS = {
 # yfinance intervals: 1h, 1d, 1wk
 TIMEFRAMES = ["1d", "1h"]
 
-GEMINI_MODEL = "gemini-3.6-flash"
-
 def fetch_data(ticker, period="30d", interval="1h"):
     try:
         df = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=True)
@@ -191,9 +189,9 @@ def call_gemini_analysis(market_snapshot):
         return "GEMINI_API_KEY not set. Here is raw data:\n" + market_snapshot
     
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(GEMINI_MODEL)
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        model_name = __import__("os").getenv("GEMINI_MODEL", "gemini-3.6-flash")
         
         prompt = f"""
 You are my ICT Swing Analyst for Forex & Commodities. Time: NY Daily Close [10 PM London - 5 PM NY].
@@ -232,7 +230,17 @@ Any red folder tomorrow? Should we stand down?
 Keep it concise, trader language, no financial advice. Max 400 words.
 """
         
-        response = model.generate_content(prompt)
+        try:
+            # Use Chat API to avoid AFC warning from Models.generate_content
+            chat = client.chats.create(model=model_name)
+            response = chat.send_message(prompt)
+        except Exception as e_model:
+            # Fallback if 3.6 not yet available on this key
+            if "not found" in str(e_model).lower() or "404" in str(e_model):
+                chat = client.chats.create(model="gemini-2.5-flash")
+                response = chat.send_message(prompt)
+            else:
+                raise
         return response.text
     except Exception as e:
         return f"Gemini Error: {e}\nRaw data:\n{market_snapshot}"
@@ -276,4 +284,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
